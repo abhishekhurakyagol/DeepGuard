@@ -1,47 +1,65 @@
 import { useState } from "react";
 import axios from "axios";
+import {
+  FaShieldAlt,
+  FaCloudUploadAlt,
+  FaImage,
+  FaVideo,
+  FaCheckCircle,
+} from "react-icons/fa";
+
+import "./App.css";
 
 function App() {
-  const [image, setImage] = useState(null);
+  const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
-
-  const [prediction, setPrediction] = useState("");
-  const [confidence, setConfidence] = useState("");
-
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleImage = (e) => {
-    const file = e.target.files[0];
+  const handleFile = (selectedFile) => {
+    if (!selectedFile) return;
 
-    if (!file) return;
+    setFile(selectedFile);
+    setResult(null);
 
-    setImage(file);
-    setPreview(URL.createObjectURL(file));
-
-    setPrediction("");
-    setConfidence("");
+    if (selectedFile.type.startsWith("image")) {
+      setPreview(URL.createObjectURL(selectedFile));
+    } else if (selectedFile.type.startsWith("video")) {
+      setPreview(URL.createObjectURL(selectedFile));
+    } else {
+      setPreview(null);
+    }
   };
 
-  const detectDeepfake = async () => {
-    if (!image) {
-      alert("Please choose an image.");
-      return;
-    }
+  const onInputChange = (e) => {
+    handleFile(e.target.files[0]);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    handleFile(e.dataTransfer.files[0]);
+  };
+
+  const analyze = async () => {
+    if (!file) return;
+
+    setLoading(true);
 
     const formData = new FormData();
-    formData.append("file", image);
+    formData.append("file", file);
 
     try {
-      setLoading(true);
+      let endpoint = "";
 
-      const response = await axios.post(
-        "http://127.0.0.1:8000/predict",
-        formData
-      );
+      if (file.type.startsWith("image")) {
+        endpoint = "http://127.0.0.1:8000/predict";
+      } else {
+        endpoint = "http://127.0.0.1:8000/predict-video";
+      }
 
-      setPrediction(response.data.prediction);
-      setConfidence(response.data.confidence);
+      const response = await axios.post(endpoint, formData);
 
+      setResult(response.data);
     } catch (err) {
       alert("Prediction Failed");
       console.log(err);
@@ -51,79 +69,136 @@ function App() {
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0f172a",
-        color: "white",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        fontFamily: "Arial",
-      }}
-    >
-      <div
-        style={{
-          width: 500,
-          padding: 30,
-          borderRadius: 20,
-          background: "#1e293b",
-          textAlign: "center",
-        }}
-      >
-        <h1>🛡️ DeepGuard AI</h1>
+    <div className="container">
 
-        <p>Detect AI Generated Images</p>
+      <div className="card">
 
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleImage}
-        />
+        <FaShieldAlt className="logo" />
 
-        <br />
-        <br />
+        <h1>DeepGuard AI</h1>
 
-        {preview && (
-          <img
-            src={preview}
-            alt="preview"
-            width="250"
-            style={{
-              borderRadius: 10
-            }}
+        <p className="subtitle">
+          AI Powered Deepfake Image & Video Detection
+        </p>
+
+        <div
+          className="upload-box"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+        >
+          <FaCloudUploadAlt className="upload-icon" />
+
+          <h2>Drag & Drop Files</h2>
+
+          <p>or choose a file below</p>
+
+          <input
+            type="file"
+            accept="image/*,video/*"
+            onChange={onInputChange}
           />
+        </div>
+
+        {file && (
+          <div className="selected">
+
+            <h3>Selected File</h3>
+
+            <p>{file.name}</p>
+
+            {preview &&
+              file.type.startsWith("image") && (
+                <img
+                  src={preview}
+                  alt="preview"
+                  className="preview"
+                />
+              )}
+
+            {preview &&
+              file.type.startsWith("video") && (
+                <video
+                  src={preview}
+                  controls
+                  className="preview"
+                />
+              )}
+
+            <button
+              className="analyze-btn"
+              onClick={analyze}
+            >
+              {loading ? "Analyzing..." : "Analyze"}
+            </button>
+
+          </div>
         )}
 
-        <br />
-        <br />
+        {result && (
+          <div className="result">
 
-        <button
-          onClick={detectDeepfake}
-          style={{
-            padding: "12px 25px",
-            cursor: "pointer",
-            fontSize: 16
-          }}
-        >
-          {loading ? "Detecting..." : "Detect Deepfake"}
-        </button>
-
-        <br />
-        <br />
-
-        {prediction && (
-          <>
             <h2>
-              Prediction : {prediction.toUpperCase()}
+              <FaCheckCircle /> Prediction Result
             </h2>
 
-            <h3>
-              Confidence : {confidence}%
-            </h3>
-          </>
+            <div
+              className={
+                result.prediction === "real"
+                  ? "badge real"
+                  : "badge fake"
+              }
+            >
+              {result.prediction.toUpperCase()}
+            </div>
+
+            <div className="confidence">
+
+              <p>
+                Confidence : {result.confidence}%
+              </p>
+
+              <div className="progress">
+
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${result.confidence}%`,
+                  }}
+                ></div>
+
+              </div>
+
+            </div>
+
+            {"total_frames" in result && (
+              <div className="stats">
+
+                <div className="stat">
+                  <FaVideo />
+                  <span>Total</span>
+                  <strong>{result.total_frames}</strong>
+                </div>
+
+                <div className="stat">
+                  <FaImage />
+                  <span>Fake</span>
+                  <strong>{result.fake_frames}</strong>
+                </div>
+
+                <div className="stat">
+                  <FaCheckCircle />
+                  <span>Real</span>
+                  <strong>{result.real_frames}</strong>
+                </div>
+
+              </div>
+            )}
+
+          </div>
         )}
+
       </div>
+
     </div>
   );
 }

@@ -1,13 +1,13 @@
 from pathlib import Path
 
+import cv2
 import torch
 import torch.nn as nn
+from PIL import Image
 from torchvision import transforms
 from torchvision.models import efficientnet_b0
-from PIL import Image
-import cv2
 
-from backend.video_utils import extract_frames
+from video_utils import extract_frames
 
 # ==========================================
 # Paths
@@ -36,7 +36,7 @@ model.eval()
 classes = ["fake", "real"]
 
 # ==========================================
-# Image Transform
+# Transform
 # ==========================================
 
 transform = transforms.Compose([
@@ -48,9 +48,6 @@ transform = transforms.Compose([
     )
 ])
 
-# ==========================================
-# Video Prediction
-# ==========================================
 
 def predict_video(video_path):
 
@@ -67,19 +64,14 @@ def predict_video(video_path):
         image = Image.fromarray(frame)
 
         image = transform(image)
-
         image = image.unsqueeze(0).to(DEVICE)
 
         with torch.no_grad():
-
             output = model(image)
-
             probabilities = torch.softmax(output, dim=1)
-
             confidence, prediction = torch.max(probabilities, 1)
 
         label = classes[prediction.item()]
-
         confidences.append(confidence.item())
 
         if label == "fake":
@@ -93,7 +85,8 @@ def predict_video(video_path):
 
     avg_confidence = (
         sum(confidences) / len(confidences) * 100
-        if confidences else 0
+        if confidences
+        else 0
     )
 
     return {

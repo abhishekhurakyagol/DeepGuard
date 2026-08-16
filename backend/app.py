@@ -9,6 +9,10 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 
 from torchvision import transforms
 from torchvision.models import efficientnet_b0
+from predict_video import predict_video
+from video_utils import save_uploaded_video
+import os
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MODEL_PATH = PROJECT_ROOT / "models" / "deepguard_v1.pth"
@@ -106,3 +110,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.post("/predict-video")
+async def predict_video_api(file: UploadFile = File(...)):
+
+    if not file.content_type.startswith("video/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a video."
+        )
+
+    # Save uploaded video
+    video_path = save_uploaded_video(file)
+
+    try:
+        result = predict_video(video_path)
+
+    finally:
+        if os.path.exists(video_path):
+            os.remove(video_path)
+
+    return result
