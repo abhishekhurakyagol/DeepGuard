@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# Logs
+*.log
+
+# Checkpoints
+checkpoints/
+
+# Model Weights
+models/*.pth
+
+# Dataset
+dataset/
+
+# Outputs
+outputs/
+
+# TensorBoard
+runs/
+
+# OS Files
+.DS_Store
+Thumbs.db
