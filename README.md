@@ -111,10 +111,36 @@ Install packages
 pip install -r requirements.txt
 ```
 
+### Environment Configuration
+
+Copy the template to `.env` and configure your settings:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Description | Default |
+|---|---|---|
+| `HOST` | API server host | `127.0.0.1` |
+| `PORT` | API server port | `8000` |
+| `ENVIRONMENT` | Deployment environment (`development` / `production`) | `development` |
+| `CORS_ORIGINS` | Allowed frontend origins (comma-separated) | `http://localhost:5173,http://127.0.0.1:5173` |
+| `MONGODB_URI` | MongoDB Atlas Connection String | `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority` |
+| `MONGODB_DB_NAME` | Database name | `deepguard` |
+| `MONGODB_TIMEOUT_MS` | Server connection timeout (ms) | `3000` |
+| `MAX_UPLOAD_SIZE_MB` | Maximum allowed upload size | `100` |
+
 Run API
 
 ```bash
+cd backend
 uvicorn app:app --reload
+```
+
+Run Tests
+
+```bash
+pytest tests/ -v
 ```
 
 Backend runs at
@@ -122,6 +148,7 @@ Backend runs at
 ```
 http://127.0.0.1:8000
 ```
+
 
 ---
 
@@ -158,6 +185,37 @@ http://localhost:5173
 ```
 GET /
 ```
+
+---
+
+### System Health Check
+
+```
+GET /health
+```
+
+Response
+
+```json
+{
+  "status": "healthy",
+  "api": "online",
+  "database": {
+    "status": "connected",
+    "connected": true,
+    "message": "Connected to MongoDB Atlas successfully.",
+    "database_name": "deepguard"
+  },
+  "models": {
+    "image_model": "loaded",
+    "audio_model": "available",
+    "device": "cuda"
+  },
+  "environment": "development",
+  "version": "1.0.0"
+}
+```
+
 
 ---
 

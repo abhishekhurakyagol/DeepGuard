@@ -1,0 +1,30 @@
+# ==============================================================================
+# DeepGuard AI — Production & Development Dependencies
+# ==============================================================================
+
+# API Framework & Server
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.7.0
+email-validator>=2.0.0
+python-dotenv>=1.0.0
+
+# Database & Driver (MongoDB Atlas)
+pymongo[srv]>=4.6.0
+dnspython>=2.6.0
+
+# Deep Learning & Computer Vision
+torch>=2.0.0
+torchvision>=0.15.0
+pillow>=10.0.0
+opencv-python>=4.8.0
+
+# Audio Processing & Feature Extraction
+librosa>=0.10.0
+matplotlib>=3.7.0
+numpy>=1.24.0
+
+# Testing & Client
+pytest>=8.0.0
+httpx>=0.27.0

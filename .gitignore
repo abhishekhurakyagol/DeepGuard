@@ -1,27 +1,44 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Virtual Environment
 venv/
+env/
+ENV/
 
-# VS Code
+# VS Code & IDEs
 .vscode/
-
-# PyCharm
 .idea/
 
 # Logs
 *.log
+logs/
 
-# Checkpoints
+# Secrets and Environment Variables
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Model Checkpoints & Weights
 checkpoints/
-
-# Model Weights
 models/*.pth
+outputs/deepguard_torchscript.pt
 
-# Dataset
+# Datasets
 dataset/
+datasets/
+
+# Ephemeral uploads & temporary artifacts
+uploads/
+temp/
 
 # Outputs
 outputs/
