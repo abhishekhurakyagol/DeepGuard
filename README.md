@@ -48,26 +48,56 @@ DeepGuard AI is an AI-powered Deepfake Detection System that identifies whether 
 ## 📂 Project Structure
 
 ```
-DeepGuard/
 
-│
-├── frontend/
-│   ├── src/
-│   ├── public/
-│   └── package.json
+DeepGuard Training/
 │
 ├── backend/
 │   ├── app.py
+│   ├── auth.py
+│   ├── database.py
+│   ├── config.py
+│   ├── security.py
+│   ├── audit.py
 │   ├── predict_video.py
+│   ├── predict_audio.py
 │   ├── video_utils.py
-│   └── requirements.txt
+│   ├── audio_utils.py
+│   ├── gradcam.py
+│   ├── requirements.txt
+│   └── routers/
+│       ├── auth_router.py
+│       ├── scans_router.py
+│       └── audit_router.py
+│
+├── frontend/
 │
 ├── models/
-│   └── deepguard_v1.pth
-│
+├── checkpoints/
+├── configs/
+├── dataset/
 ├── datasets/
+├── scripts/
+│   ├── 01_download_dataset.py
+│   ├── 02_extract_frames.py
+│   ├── 03_prepare_dataset.py
+│   ├── 04_train_model.py
+│   ├── 05_evaluate_model.py
+│   └── 06_predict.py
 │
-└── README.md
+├── training/
+├── notebooks/
+├── tests/
+│   ├── test_stage1.py
+│   └── test_stage_all.py
+│
+├── uploads/
+├── outputs/
+├── results/
+├── logs/
+├── test_images/
+├── test_predict_video.py
+└── test_video_utils.py
+
 ```
 
 ---

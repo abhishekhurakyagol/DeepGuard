@@ -1,13 +1,9 @@
+
 import cv2
 from pathlib import Path
 from tqdm import tqdm
 
-# ==========================================================
-# Project Paths
-# ==========================================================
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
 DATASET_DIR = PROJECT_ROOT / "dataset"
 
 REAL_VIDEO_DIR = (
@@ -21,100 +17,94 @@ FAKE_VIDEO_DIRS = [
     DATASET_DIR / "manipulated_sequences" / "NeuralTextures" / "c23" / "videos",
 ]
 
-REAL_OUTPUT = DATASET_DIR / "extracted_frames" / "real"
-FAKE_OUTPUT = DATASET_DIR / "extracted_frames" / "fake"
+REAL_OUTPUT = DATASET_DIR / "extracted_frames_v2" / "real"
+FAKE_OUTPUT = DATASET_DIR / "extracted_frames_v2" / "fake"
 
-REAL_OUTPUT.mkdir(parents=True, exist_ok=True)
-FAKE_OUTPUT.mkdir(parents=True, exist_ok=True)
+# Extract one frame every 5 source frames.
+FRAME_INTERVAL = 5
+SUPPORTED_EXTENSIONS = {".mp4", ".avi", ".mov"}
 
-# ==========================================================
-# Settings
-# ==========================================================
-
-FRAME_INTERVAL = 30
-
-# ==========================================================
-# Frame Extraction Function
-# ==========================================================
-
-
-def extract_frames(video_path, output_folder, frame_interval=FRAME_INTERVAL):
-    """Extract frames from a video."""
-
-    # Skip already processed videos
-    existing = list(output_folder.glob(f"{video_path.stem}_*.jpg"))
-    if existing:
-        print(f"Skipping {video_path.name} (already processed)")
-        return
-
+def extract_frames(video_path, output_folder, prefix):
     cap = cv2.VideoCapture(str(video_path))
 
     if not cap.isOpened():
-        print(f"Could not open: {video_path}")
-        return
+        print(f"WARNING: Could not open {video_path}")
+        return 0
 
-    frame_count = 0
+    frame_index = 0
     saved_count = 0
 
-    while True:
+    try:
+        while True:
+            success, frame = cap.read()
+            if not success:
+                break
 
-        success, frame = cap.read()
+            if frame_index % FRAME_INTERVAL == 0:
+                output_path = (
+                    output_folder
+                    / f"{prefix}__{saved_count:06d}.jpg"
+                )
 
-        if not success:
-            break
+                if cv2.imwrite(
+                    str(output_path),
+                    frame,
+                    [cv2.IMWRITE_JPEG_QUALITY, 95],
+                ):
+                    saved_count += 1
+                else:
+                    print(f"WARNING: Failed to save {output_path}")
 
-        if frame_count % frame_interval == 0:
+            frame_index += 1
+    finally:
+        cap.release()
 
-            output_file = (
-                output_folder
-                / f"{video_path.stem}_{saved_count:06d}.jpg"
-            )
+    return saved_count
 
-            cv2.imwrite(str(output_file), frame)
+def find_videos(folder):
+    if not folder.exists():
+        print(f"WARNING: Missing folder: {folder}")
+        return []
 
-            saved_count += 1
+    return sorted(
+        path for path in folder.iterdir()
+        if path.is_file()
+        and path.suffix.lower() in SUPPORTED_EXTENSIONS
+    )
 
-        frame_count += 1
+def main():
+    REAL_OUTPUT.mkdir(parents=True, exist_ok=True)
+    FAKE_OUTPUT.mkdir(parents=True, exist_ok=True)
 
-    cap.release()
+    real_total = 0
+    fake_total = 0
 
+    real_videos = find_videos(REAL_VIDEO_DIR)
+    print(f"Real source videos: {len(real_videos)}")
 
-# ==========================================================
-# Process Real Videos
-# ==========================================================
+    for video in tqdm(real_videos, desc="Extracting real"):
+        prefix = f"real__{video.stem}"
+        count = extract_frames(video, REAL_OUTPUT, prefix)
+        real_total += count
+        print(f"{video.name}: {count} frames")
 
-print("\n========================================")
-print("Extracting REAL videos...")
-print("========================================\n")
+    for folder in FAKE_VIDEO_DIRS:
+        method = folder.parent.parent.name
+        videos = find_videos(folder)
 
-real_videos = list(REAL_VIDEO_DIR.glob("*.mp4"))
+        print(f"\n{method}: {len(videos)} source videos")
 
-for video in tqdm(real_videos):
-    extract_frames(video, REAL_OUTPUT)
+        for video in tqdm(videos, desc=f"Extracting {method}"):
+            # Include the method to avoid filename collisions.
+            prefix = f"fake__{method}__{video.stem}"
+            count = extract_frames(video, FAKE_OUTPUT, prefix)
+            fake_total += count
 
-# ==========================================================
-# Process Fake Videos
-# ==========================================================
+    print("\n========== EXTRACTION COMPLETE ==========")
+    print(f"New real frames extracted: {real_total}")
+    print(f"New fake frames extracted: {fake_total}")
+    print(f"Real output: {REAL_OUTPUT}")
+    print(f"Fake output: {FAKE_OUTPUT}")
 
-print("\n========================================")
-print("Extracting FAKE videos...")
-print("========================================\n")
-
-for folder in FAKE_VIDEO_DIRS:
-
-    print(f"\nProcessing: {folder.parent.parent.name}")
-
-    fake_videos = list(folder.glob("*.mp4"))
-
-    for video in tqdm(fake_videos):
-        extract_frames(video, FAKE_OUTPUT)
-
-# ==========================================================
-# Finished
-# ==========================================================
-
-print("\n========================================")
-print("Frame Extraction Completed Successfully!")
-print(f"Real Frames : {REAL_OUTPUT}")
-print(f"Fake Frames : {FAKE_OUTPUT}")
-print("========================================")
+if __name__ == "__main__":
+    main()

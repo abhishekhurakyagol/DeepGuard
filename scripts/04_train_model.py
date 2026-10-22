@@ -1,24 +1,20 @@
-import os
+
 from pathlib import Path
+import shutil
+import random
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
+from torchvision.models import efficientnet_b0
+from tqdm import tqdm
 
-import matplotlib.pyplot as plt
-
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import classification_report
-
-from torch.utils.tensorboard import SummaryWriter
 # ==========================================================
 # Configuration
 # ==========================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
 DATASET_DIR = PROJECT_ROOT / "dataset"
 
 TRAIN_DIR = DATASET_DIR / "train"
@@ -29,388 +25,331 @@ MODEL_DIR = PROJECT_ROOT / "models"
 CHECKPOINT_DIR = PROJECT_ROOT / "checkpoints"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
 
-MODEL_DIR.mkdir(exist_ok=True)
-CHECKPOINT_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# -----------------------------
-# Training Parameters
-# -----------------------------
+MODEL_PATH = MODEL_DIR / "deepguard_v1.pth"
+BACKUP_PATH = MODEL_DIR / "deepguard_v1_backup.pth"
+STAGED_MODEL_PATH = MODEL_DIR / "deepguard_v1_finetuned.pth"
+LATEST_CHECKPOINT = CHECKPOINT_DIR / "latest_model.pth"
 
 IMAGE_SIZE = 224
-
 BATCH_SIZE = 16
-
-EPOCHS = 20
-
-LEARNING_RATE = 1e-4
-
+EPOCHS = 10
+LEARNING_RATE = 1e-5
 NUM_CLASSES = 2
-
 NUM_WORKERS = 0
+SEED = 42
 
-DEVICE = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+random.seed(SEED)
+torch.manual_seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
 
 print("=" * 60)
-print("Device :", DEVICE)
-
+print("DeepGuard: Fine-tuning existing model")
+print("Device:", DEVICE)
 if torch.cuda.is_available():
-    print("GPU :", torch.cuda.get_device_name(0))
-
+    print("GPU:", torch.cuda.get_device_name(0))
 print("=" * 60)
 
 # ==========================================================
-# Image Transforms
+# Validate inputs
+# ==========================================================
+
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(f"Existing model not found: {MODEL_PATH}")
+
+if not BACKUP_PATH.exists():
+    raise FileNotFoundError(
+        f"Backup not found: {BACKUP_PATH}. Back up the existing model first."
+    )
+
+for folder in (TRAIN_DIR, VAL_DIR, TEST_DIR):
+    if not folder.exists():
+        raise FileNotFoundError(f"Dataset folder not found: {folder}")
+
+# ==========================================================
+# Transforms
 # ==========================================================
 
 train_transform = transforms.Compose([
-
-    transforms.Resize((224,224)),
-
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
     transforms.RandomHorizontalFlip(),
-
     transforms.RandomRotation(10),
-
-    transforms.ColorJitter(
-        brightness=0.2,
-        contrast=0.2
+    transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
     ),
-
-    transforms.ToTensor(),
-
-    transforms.Normalize(
-        mean=[0.485,0.456,0.406],
-        std=[0.229,0.224,0.225]
-    )
-
 ])
 
-val_transform = transforms.Compose([
-
-    transforms.Resize((224,224)),
-
+eval_transform = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
     transforms.ToTensor(),
-
     transforms.Normalize(
-        mean=[0.485,0.456,0.406],
-        std=[0.229,0.224,0.225]
-    )
-
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    ),
 ])
 
 # ==========================================================
-# Dataset
+# Dataset and class validation
 # ==========================================================
 
-train_dataset = datasets.ImageFolder(
-    TRAIN_DIR,
-    transform=train_transform
-)
+train_dataset = datasets.ImageFolder(TRAIN_DIR, transform=train_transform)
+val_dataset = datasets.ImageFolder(VAL_DIR, transform=eval_transform)
+test_dataset = datasets.ImageFolder(TEST_DIR, transform=eval_transform)
 
-val_dataset = datasets.ImageFolder(
-    VAL_DIR,
-    transform=val_transform
-)
+EXPECTED_CLASSES = ["fake", "real"]
 
-test_dataset = datasets.ImageFolder(
-    TEST_DIR,
-    transform=val_transform
-)
+for name, dataset in (
+    ("train", train_dataset),
+    ("validation", val_dataset),
+    ("test", test_dataset),
+):
+    if dataset.classes != EXPECTED_CLASSES:
+        raise ValueError(
+            f"{name} class order is {dataset.classes}; "
+            f"expected {EXPECTED_CLASSES}. Check folder names."
+        )
+    if len(dataset) == 0:
+        raise ValueError(f"{name} dataset is empty.")
 
-print()
-
-print("Train Images :", len(train_dataset))
-
-print("Validation Images :", len(val_dataset))
-
-print("Test Images :", len(test_dataset))
-
-print()
-
-print("Classes :", train_dataset.classes)
-
-print()
-
-# ==========================================================
-# DataLoader
-# ==========================================================
+print("Training images:", len(train_dataset))
+print("Validation images:", len(val_dataset))
+print("Test images:", len(test_dataset))
+print("Classes:", train_dataset.classes)
 
 train_loader = DataLoader(
-
     train_dataset,
-
     batch_size=BATCH_SIZE,
-
     shuffle=True,
-
     num_workers=NUM_WORKERS,
-
-    pin_memory=torch.cuda.is_available()
-
+    pin_memory=torch.cuda.is_available(),
 )
 
 val_loader = DataLoader(
-
     val_dataset,
-
     batch_size=BATCH_SIZE,
-
     shuffle=False,
-
     num_workers=NUM_WORKERS,
-
-    pin_memory=torch.cuda.is_available()
-
+    pin_memory=torch.cuda.is_available(),
 )
 
 test_loader = DataLoader(
-
     test_dataset,
-
     batch_size=BATCH_SIZE,
-
     shuffle=False,
-
     num_workers=NUM_WORKERS,
-
-    pin_memory=torch.cuda.is_available()
-
+    pin_memory=torch.cuda.is_available(),
 )
 
-print("="*60)
-
-print("DataLoader Ready")
-
-print("="*60)
-
-
 # ==========================================================
-# Load Pretrained EfficientNet-B0
+# Load EXISTING DeepGuard weights
 # ==========================================================
 
-print("\nLoading EfficientNet-B0...")
+print("\nLoading existing DeepGuard model...")
 
-weights = EfficientNet_B0_Weights.DEFAULT
-
-model = efficientnet_b0(weights=weights)
-
-# Replace final classifier
-in_features = model.classifier[1].in_features
-
+model = efficientnet_b0(weights=None)
 model.classifier[1] = nn.Linear(
-    in_features,
-    NUM_CLASSES
+    model.classifier[1].in_features,
+    NUM_CLASSES,
 )
 
-model = model.to(DEVICE)
+# This file should contain the plain model state_dict.
+try:
+    state = torch.load(
+        MODEL_PATH,
+        map_location="cpu",
+        weights_only=True,
+    )
+except TypeError:
+    # Compatibility with older PyTorch versions.
+    state = torch.load(MODEL_PATH, map_location="cpu")
 
-print("Model Loaded Successfully!")
+if isinstance(state, dict) and "model_state_dict" in state:
+    state = state["model_state_dict"]
+
+model.load_state_dict(state, strict=True)
+model = model.to(DEVICE)
+print("Existing weights loaded successfully.")
 
 # ==========================================================
-# Loss Function
+# Fine-tuning setup
 # ==========================================================
 
 criterion = nn.CrossEntropyLoss()
 
-# ==========================================================
-# Optimizer
-# ==========================================================
-
 optimizer = torch.optim.AdamW(
-
     model.parameters(),
-
     lr=LEARNING_RATE,
-
-    weight_decay=1e-4
-
+    weight_decay=1e-4,
 )
-
-# ==========================================================
-# Learning Rate Scheduler
-# ==========================================================
 
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-
     optimizer,
-
     mode="max",
-
     factor=0.5,
-
-    patience=2
-
+    patience=2,
 )
 
-# ==========================================================
-# Mixed Precision (RTX 3050)
-# ==========================================================
+use_amp = DEVICE.type == "cuda"
+scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
-scaler = torch.cuda.amp.GradScaler(
-    enabled=torch.cuda.is_available()
-)
+# Start with the current model as the best candidate.
+# This prevents a worse fine-tuned model from replacing it.
+best_accuracy = None
+best_state = None
 
-print("Optimizer Ready")
-print("Scheduler Ready")
-print("Mixed Precision Enabled:", torch.cuda.is_available())
-
-# ==========================================================
-# Statistics
-# ==========================================================
-
-best_accuracy = 0.0
-
-train_loss_history = []
-val_loss_history = []
-
-train_acc_history = []
-val_acc_history = []
-
-print("=" * 60)
-print("Training Pipeline Ready")
-print("=" * 60)
-
-# ==========================================================
-# Training Loop
-# ==========================================================
-
-from tqdm import tqdm
-
-for epoch in range(EPOCHS):
-
-    print(f"\nEpoch {epoch+1}/{EPOCHS}")
-    print("-" * 60)
-
-    # -------------------------
-    # Training
-    # -------------------------
-
-    model.train()
-
-    running_loss = 0.0
-    correct = 0
-    total = 0
-
-    train_bar = tqdm(train_loader, desc="Training", leave=False)
-
-    for images, labels in train_bar:
-
-        images = images.to(DEVICE)
-        labels = labels.to(DEVICE)
-
-        optimizer.zero_grad()
-
-        with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
-
-            outputs = model(images)
-
-            loss = criterion(outputs, labels)
-
-        scaler.scale(loss).backward()
-
-        scaler.step(optimizer)
-
-        scaler.update()
-
-        running_loss += loss.item()
-
-        _, predicted = torch.max(outputs, 1)
-
-        total += labels.size(0)
-
-        correct += (predicted == labels).sum().item()
-
-        train_bar.set_postfix(
-            loss=f"{loss.item():.4f}",
-            acc=f"{100*correct/total:.2f}%"
-        )
-
-    train_loss = running_loss / len(train_loader)
-    train_acc = 100 * correct / total
-
-    train_loss_history.append(train_loss)
-    train_acc_history.append(train_acc)
-
-    # -------------------------
-    # Validation
-    # -------------------------
-
+def evaluate(loader):
     model.eval()
-
-    val_loss = 0.0
+    total_loss = 0.0
     correct = 0
     total = 0
 
     with torch.no_grad():
-
-        val_bar = tqdm(val_loader, desc="Validation", leave=False)
-
-        for images, labels in val_bar:
-
+        for images, labels in loader:
             images = images.to(DEVICE)
             labels = labels.to(DEVICE)
 
-            outputs = model(images)
+            with torch.autocast(
+                device_type=DEVICE.type,
+                enabled=use_amp,
+            ):
+                outputs = model(images)
+                loss = criterion(outputs, labels)
 
-            loss = criterion(outputs, labels)
-
-            val_loss += loss.item()
-
-            _, predicted = torch.max(outputs, 1)
-
+            total_loss += loss.item() * labels.size(0)
+            correct += (outputs.argmax(dim=1) == labels).sum().item()
             total += labels.size(0)
 
-            correct += (predicted == labels).sum().item()
+    return total_loss / total, 100.0 * correct / total
 
-            val_bar.set_postfix(
-                loss=f"{loss.item():.4f}",
-                acc=f"{100*correct/total:.2f}%"
-            )
+# Measure the current model before fine-tuning.
+initial_val_loss, initial_val_acc = evaluate(val_loader)
+best_accuracy = initial_val_acc
+best_state = {
+    key: value.detach().cpu().clone()
+    for key, value in model.state_dict().items()
+}
 
-    val_loss /= len(val_loader)
-    val_acc = 100 * correct / total
+print(f"Initial validation accuracy: {initial_val_acc:.2f}%")
 
-    val_loss_history.append(val_loss)
-    val_acc_history.append(val_acc)
+# ==========================================================
+# Fine-tuning loop
+# ==========================================================
 
-    scheduler.step(val_acc)
+for epoch in range(EPOCHS):
+    model.train()
+    running_loss = 0.0
+    correct = 0
+    total = 0
 
-    print(f"Train Loss : {train_loss:.4f}")
-    print(f"Train Acc  : {train_acc:.2f}%")
-
-    print(f"Val Loss   : {val_loss:.4f}")
-    print(f"Val Acc    : {val_acc:.2f}%")
-
-    # -------------------------
-    # Save Best Model
-    # -------------------------
-
-    if val_acc > best_accuracy:
-
-        best_accuracy = val_acc
-
-        torch.save(
-            model.state_dict(),
-            MODEL_DIR / "deepguard_v1.pth"
-        )
-
-        print("Best Model Saved!")
-
-    # -------------------------
-    # Save Latest Checkpoint
-    # -------------------------
-
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "best_accuracy": best_accuracy,
-        },
-        CHECKPOINT_DIR / "latest_model.pth"
+    progress = tqdm(
+        train_loader,
+        desc=f"Epoch {epoch + 1}/{EPOCHS}",
     )
 
-print("\nTraining Completed Successfully!")
-print(f"Best Validation Accuracy : {best_accuracy:.2f}%")
+    for images, labels in progress:
+        images = images.to(DEVICE)
+        labels = labels.to(DEVICE)
+
+        optimizer.zero_grad(set_to_none=True)
+
+        with torch.autocast(
+            device_type=DEVICE.type,
+            enabled=use_amp,
+        ):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        running_loss += loss.item() * labels.size(0)
+        correct += (outputs.argmax(dim=1) == labels).sum().item()
+        total += labels.size(0)
+
+        progress.set_postfix(
+            loss=f"{loss.item():.4f}",
+            acc=f"{100.0 * correct / total:.2f}%",
+        )
+
+    train_loss = running_loss / total
+    train_acc = 100.0 * correct / total
+
+    val_loss, val_acc = evaluate(val_loader)
+    scheduler.step(val_acc)
+
+    print(f"\nTrain loss: {train_loss:.4f}")
+    print(f"Train accuracy: {train_acc:.2f}%")
+    print(f"Validation loss: {val_loss:.4f}")
+    print(f"Validation accuracy: {val_acc:.2f}%")
+
+    # Retain only a model that improves on the original baseline.
+    if val_acc > best_accuracy:
+        best_accuracy = val_acc
+        best_state = {
+            key: value.detach().cpu().clone()
+            for key, value in model.state_dict().items()
+        }
+        print("Improved model candidate recorded.")
+
+# ==========================================================
+# Save candidate without overwriting the existing model
+# ==========================================================
+
+torch.save(best_state, STAGED_MODEL_PATH)
+
+# Verify that the candidate can be loaded.
+verification_model = efficientnet_b0(weights=None)
+verification_model.classifier[1] = nn.Linear(
+    verification_model.classifier[1].in_features,
+    NUM_CLASSES,
+)
+verification_model.load_state_dict(
+    torch.load(
+        STAGED_MODEL_PATH,
+        map_location="cpu",
+        weights_only=True,
+    ),
+    strict=True,
+)
+
+# Test the candidate on the test split.
+model.load_state_dict(best_state, strict=True)
+test_loss, test_acc = evaluate(test_loader)
+
+print("\n" + "=" * 60)
+print(f"Original validation accuracy: {initial_val_acc:.2f}%")
+print(f"Best candidate validation accuracy: {best_accuracy:.2f}%")
+print(f"Candidate test accuracy: {test_acc:.2f}%")
+print("Candidate saved to:", STAGED_MODEL_PATH)
+print("=" * 60)
+
+if best_accuracy > initial_val_acc:
+    # Preserve the current file until the candidate has been validated.
+    shutil.copy2(STAGED_MODEL_PATH, MODEL_PATH)
+    print("Existing DeepGuard model updated successfully.")
+else:
+    print("No validation improvement; existing model was NOT replaced.")
+    print("Review the dataset and training results before trying again.")
+
+torch.save(
+    {
+        "model_state_dict": best_state,
+        "optimizer_state_dict": optimizer.state_dict(),
+        "best_validation_accuracy": best_accuracy,
+        "initial_validation_accuracy": initial_val_acc,
+        "test_accuracy": test_acc,
+    },
+    LATEST_CHECKPOINT,
+)
+
+print("Training run completed.")
